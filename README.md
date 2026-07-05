@@ -11,6 +11,19 @@ A fully Python/Pygame interactive open-world action-driving game inspired by mod
 - Combat loop with ammo, reloads, hit feedback, target practice, enemy AI, police heat, player damage, armor, and rewards.
 - City life simulation with pedestrians, traffic-ready roads, palm-lined streets, buildings, garages, mission markers, particles, and procedural visual polish.
 - Progression through cash rewards, score, mission completion, wanted level survival, purchasable armor, and autosave after completed missions.
+# Metro Renegade: Python Open-World Prototype
+
+A fully Python/Pygame interactive open-world action-driving prototype inspired by modern urban sandbox games. It is **not a GTA copy** and uses original procedural visuals, systems, and UI.
+
+## Features
+
+- Third-person city exploration with a minimap, cash, clock, portrait HUD, and mission panels.
+- Seamless on-foot and driving controls with nearby vehicle entry/exit.
+- Simple shooting range gameplay with ammo, targets, hit feedback, and reloads.
+- City life simulation: pedestrians, traffic, palm-lined streets, shops, garages, and district labels.
+- Interactive missions with objectives, rewards, and distance tracking.
+- Vehicle garage with multiple cars and a motorcycle.
+- No prone mechanic.
 
 ## Install
 
@@ -51,3 +64,10 @@ Complete every blue mission marker. The game ends in victory after finishing all
 ## Notes
 
 This project intentionally avoids copyrighted game assets and trademarked names. It delivers a playable, Python-only urban sandbox game with original art, mechanics, and GUI presentation.
+| Cycle radio / district vibe | `Tab` |
+| Toggle help | `H` |
+| Pause | `Esc` |
+
+## Notes
+
+This project intentionally avoids copyrighted game assets and trademarked names. It delivers a playable, Python-only urban sandbox prototype with an original look and mechanics.

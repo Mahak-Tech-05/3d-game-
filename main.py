@@ -3,6 +3,11 @@
 This project avoids copyrighted assets and trademarked content. It presents an
 original top-down/third-person-inspired sandbox with missions, combat, driving,
 progression, win/lose states, and no prone mechanic.
+"""Metro Renegade - an original Python/Pygame urban sandbox prototype.
+
+The game is intentionally not a clone of any commercial title. It uses only
+procedural shapes and text to evoke a polished open-world HUD and city vibe.
+There is no prone mechanic.
 """
 
 from __future__ import annotations
@@ -12,6 +17,9 @@ import math
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
+import math
+import random
+from dataclasses import dataclass, field
 from typing import Iterable
 
 import pygame
@@ -22,6 +30,13 @@ WORLD_W, WORLD_H = 3600, 2600
 ROAD_W = 172
 BLOCK = 520
 SAVE_FILE = Path("savegame.json")
+WORLD_W, WORLD_H = 3200, 2400
+ROAD_W = 170
+BLOCK = 520
+LANE = (42, 44, 47)
+SIDEWALK = (207, 201, 190)
+ASPHALT = (63, 64, 66)
+GRASS = (71, 124, 66)
 WHITE = (245, 245, 238)
 YELLOW = (232, 202, 71)
 GREEN = (42, 210, 80)
@@ -77,6 +92,30 @@ class Vehicle:
         self.pos.x = clamp(self.pos.x, 45, WORLD_W - 45)
         self.pos.y = clamp(self.pos.y, 45, WORLD_H - 45)
 
+    @property
+    def size(self) -> tuple[int, int]:
+        return (64, 34) if self.kind == "car" else (48, 20)
+
+    def update(self, dt: float, keys: pygame.key.ScancodeWrapper, player_driving: bool) -> None:
+        if not player_driving:
+            return
+        accel = 640 if keys[pygame.K_w] or keys[pygame.K_UP] else 0
+        reverse = 360 if keys[pygame.K_s] or keys[pygame.K_DOWN] else 0
+        self.speed += (accel - reverse) * dt
+        friction = 1.9 if keys[pygame.K_LSHIFT] else 1.15
+        self.speed -= self.speed * friction * dt
+        self.speed = clamp(self.speed, -220, 620)
+        turn = 0
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            turn -= 1
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            turn += 1
+        turn_strength = 2.6 * (0.2 + min(abs(self.speed) / 320, 1.0))
+        self.angle += turn * turn_strength * dt * (1 if self.speed >= 0 else -1)
+        self.pos += vec_from_angle(self.angle) * self.speed * dt
+        self.pos.x = clamp(self.pos.x, 40, WORLD_W - 40)
+        self.pos.y = clamp(self.pos.y, 40, WORLD_H - 40)
+
     def draw(self, surface: pygame.Surface, camera: pygame.Vector2, selected: bool = False) -> None:
         w, h = self.size
         car = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -84,6 +123,10 @@ class Vehicle:
         pygame.draw.rounded_rect(car, (24, 29, 36), (w * 0.28, 5, w * 0.38, h - 10), 5)
         pygame.draw.rect(car, (235, 236, 210), (w - 9, 6, 6, 9))
         pygame.draw.rect(car, (190, 25, 28), (2, 6, 6, 9))
+        pygame.draw.rounded_rect(car, self.color, (0, 0, w, h), 9)
+        pygame.draw.rounded_rect(car, (25, 29, 34), (w * 0.28, 5, w * 0.36, h - 10), 5)
+        pygame.draw.rect(car, (235, 236, 210), (w - 8, 6, 5, 8))
+        pygame.draw.rect(car, (190, 20, 25), (2, 6, 5, 8))
         if self.kind == "bike":
             pygame.draw.circle(car, BLACK, (8, h // 2), 7)
             pygame.draw.circle(car, BLACK, (w - 8, h // 2), 7)
@@ -91,6 +134,10 @@ class Vehicle:
         surface.blit(rotated, rotated.get_rect(center=self.pos - camera))
         if selected:
             pygame.draw.circle(surface, YELLOW, self.pos - camera, 48, 2)
+        rect = rotated.get_rect(center=self.pos - camera)
+        surface.blit(rotated, rect)
+        if selected:
+            pygame.draw.circle(surface, YELLOW, self.pos - camera, 46, 2)
 
 
 @dataclass
@@ -106,6 +153,12 @@ class Pedestrian:
             self.direction = safe_normalize(pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1)))
             self.timer = random.uniform(0.8, 3.2)
         self.pos += self.direction * 38 * dt
+            self.direction = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+            if self.direction.length_squared() == 0:
+                self.direction = pygame.Vector2(1, 0)
+            self.direction.normalize_ip()
+            self.timer = random.uniform(1.0, 3.4)
+        self.pos += self.direction * 42 * dt
         self.pos.x = clamp(self.pos.x, 60, WORLD_W - 60)
         self.pos.y = clamp(self.pos.y, 60, WORLD_H - 60)
 
@@ -157,11 +210,21 @@ class Mission:
         distance = int(player_pos.distance_to(self.target))
         return f"{self.briefing} | {self.progress}/{self.required} | {distance}m"
 
+class Mission:
+    title: str
+    detail: str
+    pos: pygame.Vector2
+    target: pygame.Vector2
+    reward: int
+    active: bool = False
+    complete: bool = False
+
 
 class Game:
     def __init__(self) -> None:
         pygame.init()
         pygame.display.set_caption("Metro Renegade - Complete Python Open World")
+        pygame.display.set_caption("Metro Renegade - Python Open World")
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("arial", 20, bold=True)
@@ -181,6 +244,10 @@ class Game:
         self.in_vehicle: Vehicle | None = None
         self.cash = 1500
         self.score = 0
+        self.player = pygame.Vector2(760, 720)
+        self.player_angle = 0.0
+        self.in_vehicle: Vehicle | None = None
+        self.cash = 3285
         self.ammo = 220
         self.mag = 30
         self.time_minutes = 12 * 60 + 45
@@ -191,6 +258,8 @@ class Game:
         self.message_timer = 6.0
         self.enemies: list[Enemy] = []
         self.particles: list[tuple[pygame.Vector2, pygame.Vector2, float, tuple[int, int, int]]] = []
+        self.message = "Press E near a vehicle. Press F at markers. No prone mechanic."
+        self.message_timer = 6.0
         self.vehicles = [
             Vehicle(pygame.Vector2(850, 720), (24, 31, 40), "Shadow Sedan"),
             Vehicle(pygame.Vector2(1220, 1080), (215, 46, 34), "Crimson Cabrio"),
@@ -254,6 +323,31 @@ class Game:
                 move.normalize_ip()
                 self.player_angle = math.atan2(move.y, move.x)
             self.player += move * (235 if keys[pygame.K_LSHIFT] else 148) * dt
+        ]
+        self.peds = [Pedestrian(pygame.Vector2(random.randrange(80, WORLD_W - 80), random.randrange(80, WORLD_H - 80)), random.choice([(230, 190, 145), (110, 80, 55), (245, 220, 170)])) for _ in range(70)]
+        self.missions = [Mission("REPOSSESSION", "Recover the pearl sport car", pygame.Vector2(640, 940), pygame.Vector2(1740, 710), 850)]
+        self.targets = [pygame.Vector2(520 + i * 95, 1540 + (i % 2) * 55) for i in range(8)]
+
+    def camera(self) -> pygame.Vector2:
+        focus = self.in_vehicle.pos if self.in_vehicle else self.player
+        return pygame.Vector2(clamp(focus.x - WIDTH / 2, 0, WORLD_W - WIDTH), clamp(focus.y - HEIGHT / 2, 0, WORLD_H - HEIGHT))
+
+    def update(self, dt: float) -> None:
+        keys = pygame.key.get_pressed()
+        if self.paused:
+            return
+        self.time_minutes = (self.time_minutes + dt * 1.8) % (24 * 60)
+        if self.message_timer > 0:
+            self.message_timer -= dt
+        if self.in_vehicle:
+            self.in_vehicle.update(dt, keys, True)
+            self.player = self.in_vehicle.pos - vec_from_angle(self.in_vehicle.angle) * 28
+        else:
+            move = pygame.Vector2((keys[pygame.K_d] or keys[pygame.K_RIGHT]) - (keys[pygame.K_a] or keys[pygame.K_LEFT]), (keys[pygame.K_s] or keys[pygame.K_DOWN]) - (keys[pygame.K_w] or keys[pygame.K_UP]))
+            if move.length_squared():
+                move.normalize_ip()
+                self.player_angle = math.atan2(move.y, move.x)
+            self.player += move * (230 if keys[pygame.K_LSHIFT] else 145) * dt
             self.player.x = clamp(self.player.x, 35, WORLD_W - 35)
             self.player.y = clamp(self.player.y, 35, WORLD_H - 35)
         for ped in self.peds:
@@ -332,6 +426,18 @@ class Game:
     def nearest_vehicle(self) -> Vehicle | None:
         near = min(self.vehicles, key=lambda v: v.pos.distance_to(self.player_pos))
         return near if near.pos.distance_to(self.player_pos) < 92 else None
+        for mission in self.missions:
+            if mission.active and not mission.complete and self.player.distance_to(mission.target) < 70:
+                mission.complete = True
+                mission.active = False
+                self.cash += mission.reward
+                self.message = f"Mission passed: {mission.title} +${mission.reward}"
+                self.message_timer = 5
+
+    def nearest_vehicle(self) -> Vehicle | None:
+        pos = self.in_vehicle.pos if self.in_vehicle else self.player
+        near = min(self.vehicles, key=lambda v: v.pos.distance_to(pos))
+        return near if near.pos.distance_to(pos) < 92 else None
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.QUIT:
@@ -467,6 +573,60 @@ class Game:
         self.draw_world(cam)
         self.draw_hud(cam)
         pygame.display.flip()
+                if self.in_vehicle:
+                    self.player = self.in_vehicle.pos + pygame.Vector2(48, 0).rotate_rad(self.in_vehicle.angle)
+                    self.message = f"Exited {self.in_vehicle.name}"
+                    self.in_vehicle = None
+                else:
+                    vehicle = self.nearest_vehicle()
+                    if vehicle:
+                        self.in_vehicle = vehicle
+                        self.message = f"Driving {vehicle.name}"
+                    else:
+                        self.message = "No vehicle close enough"
+                self.message_timer = 3
+            elif event.key == pygame.K_f:
+                self.interact()
+            elif event.key == pygame.K_r:
+                self.mag = min(30, self.ammo)
+                self.message = "Reloaded"
+                self.message_timer = 2
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            self.shoot()
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            self.shoot()
+        return True
+
+    def interact(self) -> None:
+        for mission in self.missions:
+            if not mission.complete and self.player.distance_to(mission.pos) < 95:
+                mission.active = True
+                self.message = f"Mission started: {mission.title}"
+                self.message_timer = 4
+                return
+        if self.player.distance_to(pygame.Vector2(1740, 760)) < 180:
+            self.cash = max(0, self.cash - 50)
+            self.message = "Garage tuned your ride for $50"
+            self.message_timer = 3
+        else:
+            self.message = "Nothing to interact with here"
+            self.message_timer = 2
+
+    def shoot(self) -> None:
+        if self.mag <= 0:
+            self.message = "Empty magazine - press R"
+            self.message_timer = 2
+            return
+        self.mag -= 1
+        mouse_world = pygame.Vector2(pygame.mouse.get_pos()) + self.camera()
+        origin = self.in_vehicle.pos if self.in_vehicle else self.player
+        for target in list(self.targets):
+            if target.distance_to(mouse_world) < 38 and target.distance_to(origin) < 680:
+                self.targets.remove(target)
+                self.cash += 25
+                self.message = "Target hit +$25"
+                self.message_timer = 2
+                break
 
     def draw_world(self, cam: pygame.Vector2) -> None:
         self.screen.fill((123, 185, 224))
@@ -487,6 +647,11 @@ class Game:
                     pygame.draw.rect(self.screen, color, (bx - cam.x, by - cam.y, 145, 110))
                     for wx in (15, 58, 101):
                         pygame.draw.rect(self.screen, (40, 55, 68), (bx - cam.x + wx, by - cam.y + 18, 25, 28))
+                    color = random.Random(bx * 31 + by).choice([(180, 160, 135), (150, 165, 175), (205, 190, 165), (115, 125, 135)])
+                    pygame.draw.rect(self.screen, color, (bx - cam.x, by - cam.y, 145, 110))
+                    pygame.draw.rect(self.screen, (40, 55, 68), (bx - cam.x + 15, by - cam.y + 18, 25, 28))
+                    pygame.draw.rect(self.screen, (40, 55, 68), (bx - cam.x + 58, by - cam.y + 18, 25, 28))
+                    pygame.draw.rect(self.screen, (40, 55, 68), (bx - cam.x + 101, by - cam.y + 18, 25, 28))
         for palm in range(80, WORLD_W, 240):
             pygame.draw.rect(self.screen, (110, 72, 35), (palm - cam.x, 55 - cam.y, 8, 46))
             pygame.draw.circle(self.screen, (45, 140, 58), (palm - cam.x + 4, 50 - cam.y), 25)
@@ -501,6 +666,10 @@ class Game:
                 self.draw_text("F", mission.start - cam - pygame.Vector2(7, 13), WHITE, self.big)
                 if mission.active:
                     pygame.draw.circle(self.screen, GREEN if mission.goal != "finale" else PURPLE, mission.target - cam, 40, 4)
+                pygame.draw.circle(self.screen, ORANGE if mission.active else BLUE, mission.pos - cam, 28, 4)
+                self.draw_text("F", mission.pos - cam - pygame.Vector2(7, 13), WHITE, self.big)
+                if mission.active:
+                    pygame.draw.circle(self.screen, GREEN, mission.target - cam, 38, 4)
         for ped in self.peds:
             ped.draw(self.screen, cam)
         near = self.nearest_vehicle()
@@ -515,6 +684,11 @@ class Game:
             pygame.draw.circle(self.screen, (34, 76, 108), p, 17)
             pygame.draw.circle(self.screen, (65, 45, 35), p + pygame.Vector2(0, -18), 10)
             pygame.draw.line(self.screen, (235, 235, 225), p, p + vec_from_angle(self.player_angle) * 27, 4)
+            pygame.draw.line(self.screen, (235, 235, 225), p, p + vec_from_angle(self.player_angle) * 26, 4)
+
+    def draw_text(self, text: str, pos: Iterable[float], color=WHITE, font: pygame.font.Font | None = None) -> None:
+        img = (font or self.font).render(text, True, color)
+        self.screen.blit(img, pos)
 
     def draw_hud(self, cam: pygame.Vector2) -> None:
         minutes = int(self.time_minutes)
@@ -530,6 +704,13 @@ class Game:
         self.draw_label(mode, (12, 10))
         self.draw_bars()
         self.draw_wanted()
+        pygame.draw.circle(self.screen, (28, 34, 42), (1215, 43), 34)
+        pygame.draw.circle(self.screen, (92, 58, 40), (1215, 37), 15)
+        pygame.draw.rect(self.screen, (25, 74, 106), (1198, 52, 34, 20))
+        weapon = "DRIVING" if self.in_vehicle else "OPEN WORLD EXPLORATION"
+        if self.targets and not self.in_vehicle and self.player.y > 1250:
+            weapon = "SHOOTING"
+        self.draw_label(weapon, (12, 10))
         if self.in_vehicle:
             speed = abs(int(self.in_vehicle.speed * 0.18))
             pygame.draw.circle(self.screen, (17, 18, 20), (1148, 615), 72, 4)
@@ -564,6 +745,33 @@ class Game:
             self.draw_text("★", (1025 + i * 22, 55), YELLOW if i < self.wanted else (70, 70, 75), self.font)
 
     def draw_minimap(self) -> None:
+            self.draw_text(f"Rifle {self.ammo}  {self.mag}", (1025, 102), WHITE, self.font)
+        self.draw_minimap(cam)
+        mission = next((m for m in self.missions if m.active), None)
+        if mission:
+            pygame.draw.rect(self.screen, (0, 0, 0, 185), (12, 458, 285, 105))
+            self.draw_text("MISSION", (22, 468), WHITE, self.font)
+            self.draw_text(mission.title, (22, 497), WHITE, self.font)
+            dist = int((self.player if not self.in_vehicle else self.in_vehicle.pos).distance_to(mission.target))
+            self.draw_text(f"{mission.detail} ({dist}m)", (22, 526), WHITE, self.small)
+        if self.message_timer > 0:
+            self.draw_panel(self.message, (12, 44), 360)
+        if self.show_help:
+            self.draw_panel("WASD move/drive | E vehicle | F interact | Mouse/Space shoot | R reload | H help", (260, 674), 760)
+        if self.paused:
+            self.draw_label("PAUSED", (560, 320), self.big)
+
+    def draw_label(self, text: str, pos: tuple[int, int], font: pygame.font.Font | None = None) -> None:
+        label = (font or self.font).render(text, True, WHITE)
+        box = label.get_rect(topleft=pos).inflate(18, 10)
+        pygame.draw.rect(self.screen, BLACK, box)
+        self.screen.blit(label, label.get_rect(topleft=(pos[0] + 9, pos[1] + 5)))
+
+    def draw_panel(self, text: str, pos: tuple[int, int], width: int) -> None:
+        pygame.draw.rect(self.screen, (0, 0, 0, 170), (*pos, width, 30))
+        self.draw_text(text, (pos[0] + 8, pos[1] + 6), WHITE, self.small)
+
+    def draw_minimap(self, cam: pygame.Vector2) -> None:
         rect = pygame.Rect(14, 535, 165, 135)
         pygame.draw.rect(self.screen, (170, 176, 173), rect)
         sx, sy = rect.w / WORLD_W, rect.h / WORLD_H
@@ -575,6 +783,8 @@ class Game:
         for mission in self.missions:
             if not mission.complete:
                 pygame.draw.circle(self.screen, BLUE, (rect.x + mission.start.x * sx, rect.y + mission.start.y * sy), 4)
+        pos = self.in_vehicle.pos if self.in_vehicle else self.player
+        pygame.draw.circle(self.screen, WHITE, (rect.x + pos.x * sx, rect.y + pos.y * sy), 5)
         pygame.draw.rect(self.screen, BLACK, rect, 3)
         pygame.draw.rect(self.screen, GREEN, (14, 674, 72, 7))
         pygame.draw.rect(self.screen, BLUE, (86, 674, 46, 7))
@@ -621,6 +831,10 @@ class Game:
                 running = self.handle_event(event)
             self.update(dt)
             self.draw()
+            cam = self.camera()
+            self.draw_world(cam)
+            self.draw_hud(cam)
+            pygame.display.flip()
         pygame.quit()
 
 
